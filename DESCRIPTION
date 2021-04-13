@@ -22,7 +22,8 @@ Imports:
     graphics,
     grDevices,
     utils,
-    stats
+    stats,
+    seqinr
 Suggests:
     scales,
     vegan,
@@ -35,7 +36,7 @@ Suggests:
     plotly,
     Rtsne,
     treemapify
-RoxygenNote: 6.0.1
+RoxygenNote: 7.1.1
 Collate: 
     'tSNE_functions.R'
     'PCA_functions.R'

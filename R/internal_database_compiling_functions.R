@@ -295,6 +295,22 @@ read_tsv_file <- function(tsv_filename, get_prefix = T) {
   return(seqDB)
 }
 
+#' @title get_tmp_tsv_file
+#'
+#' @description convert fasta/fastq to tsv format for R-compatible reading in
+#' example tsv file line:
+#' PB.1.1   ACGTCATCATCAT
+#'
+#' @param filename
+#' @param ORFs
+#' @param exons
+#'
+#' @importFrom seqinr read.fasta
+#' @importFrom purrr map unnest
+#' @importFrom tibble enframe
+#' @importFrom readr write_tsv
+#' @importFrom magrittr %>%
+#'
 get_tmp_tsv_file <- function(filename, ORFs = F, exons = F) {
   old_name <- strsplit(basename(filename), split = ".",
                        fixed = T)[[1]]
@@ -309,20 +325,28 @@ get_tmp_tsv_file <- function(filename, ORFs = F, exons = F) {
   tmpfile <- paste(d_name, "/", old_name, ".", ext, ".tsv", sep = "")
 
   if (!file.exists(tmpfile)) {
-    # convert fasta/fastq to tsv format for R-compatible reading in
-    # example tsv file line:
-    # PB.1.1   ACGTCATCATCAT
-    if (!exons) {
-      system(command = paste("cat ", filename,
-              " | sed -E 's/^.*(PB\\.[0-9]+\\.[0-9]+).*$/DELIM1\\1DELIM2/'",
-              " | tr -d '\n'  | sed 's/DELIM1/\\'$'\n/g'",
-              " | sed 's/DELIM2/\'$'\t/g' | tail -n +2 > ", tmpfile, sep = ""))
-    } else {
-      system(command = paste("cat ", filename,
-              " | sed -E 's/^>(.*)$/DELIM1\\1DELIM2/'",
-              " | tr -d '\n'  | sed 's/DELIM1/\\'$'\n/g'",
-              " | sed 's/DELIM2/\'$'\t/g' | tail -n +2 > ", tmpfile, sep = ""))
-    }
+    read.fasta(
+      transcript_filename,
+      as.string = TRUE
+      ) %>%
+    map(
+      .x = fasta,
+      .f = as.character
+    ) %>%
+    enframe() %>%
+    unnest(col = c(value)) %>%
+    write_tsv(file = paste0(transcript_filename, ".tsv"))
+    # if (!exons) {
+    #   system(command = paste("cat ", filename,
+    #           " | sed -E 's/^.*(PB\\.[0-9]+\\.[0-9]+).*$/DELIM1\\1DELIM2/'",
+    #           " | tr -d '\n'  | sed 's/DELIM1/\\'$'\n/g'",
+    #           " | sed 's/DELIM2/\'$'\t/g' | tail -n +2 > ", tmpfile, sep = ""))
+    # } else {
+    #   system(command = paste("cat ", filename,
+    #           " | sed -E 's/^>(.*)$/DELIM1\\1DELIM2/'",
+    #           " | tr -d '\n'  | sed 's/DELIM1/\\'$'\n/g'",
+    #           " | sed 's/DELIM2/\'$'\t/g' | tail -n +2 > ", tmpfile, sep = ""))
+    # }
   }
   return(tmpfile)
 }
