@@ -306,7 +306,8 @@ read_tsv_file <- function(tsv_filename, get_prefix = T) {
 #' @param exons
 #'
 #' @importFrom seqinr read.fasta
-#' @importFrom purrr map unnest
+#' @importFrom purrr map 
+#' @importFrom tidyr unnest
 #' @importFrom tibble enframe
 #' @importFrom readr write_tsv
 #' @importFrom magrittr %>%
