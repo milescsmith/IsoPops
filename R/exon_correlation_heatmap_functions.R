@@ -54,45 +54,80 @@ weighted_corr <- function(exon_call_df, weights) {
 #' plot_exon_correlations(DB)
 #' }
 #' @seealso Database
+#' 
 #' @import ggplot2
+#' @importFrom readr read_tsv
+#' 
 #' @export
-plot_exon_correlations <- function(database, exon_filename, gene, weighted = T,
-                                   exons_to_include = NULL, weights = NULL,
-                                   plot_hist = F, symmetric = F) {
-  seqs <- database$TranscriptDB[database$TranscriptDB$Gene == gene, ]
+plot_exon_correlations <-
+  function(
+    database,
+    exon_filename,
+    gene,
+    weighted = T,
+    exons_to_include = NULL,
+    weights = NULL,
+    plot_hist = F,
+    symmetric = F
+  ) {
+  seqs <- database[["TranscriptDB"]][database[["TranscriptDB"]][["Gene"]] == gene, ]
+  
   # default: use read counts as weights (suggested)
   if (is.null(weights)) {
     weights <- seqs[, "FL_reads"]
   }
-  seqs <- seqs[, c("PBID", "Transcript")]
+  seqs <- select(.data = seqs, PBID, Transcript)
 
   # exon file should be 2 columns: name/number and nucleotide sequence
   # columns should be separated by tabs
-  # if it's a fasta file, a temp. file will be made
+  # if it's a fasta file, a temp. file will be made (No, it goddamn won't)
   if (!is_tsv_format(exon_filename, PBIDs = F)) {
-    tmpfile <- get_tmp_tsv_file(exon_filename, exons = T)
-    exons <- read.table(tmpfile, header = F, stringsAsFactors = F)
+    exons <-
+      read_fasta_file(
+        filename = exon_filename,
+        get_prefix = FALSE
+        ) %>%
+      select(-seq_len)
   } else {
-    exons <- read.table(exon_filename, header = F, stringsAsFactors = F)
+    exons <- read_tsv(exon_filename)
   }
 
-  colnames(exons) <- c("ID", "Sequence")
-  exons$Sequence <- sapply(exons$Sequence, toupper)
-  exons$Start <- sapply(exons$Sequence, function(exon) {
-    substr(exon, 1, min(nchar(exon), 30))
-  })
-  exons$End <- sapply(exons$Sequence, function(exon) {
-    substr(exon, max(nchar(exon) - 30 + 1, 1), nchar(exon))
-  })
-  tmp <- colnames(seqs)
+  exons <-
+    exons %>%
+    set_colnames(
+      value = c("ID", "Sequence")
+      ) %>%
+    mutate(
+      Sequence = toupper(Sequence),
+      Start =
+        str_sub(
+          string = Sequence,
+          start = 1,
+          end = pmin(nchar(Sequence), 30)
+          ),
+      End = 
+        str_sub(
+          string = Sequence,
+          start = pmax(nchar(Sequence) - 30 + 1, 1),
+          end = nchar(Sequence))
+      )
 
   # exon is "in transcript" if either first or last 30bp of exon are found
   # note: you'll miss exons if you have not genome-corrected transcripts
-  for (i in seq_len(nrow(exons))) {
-    seqs <- cbind(seqs, as.numeric(grepl(exons$Start[i], seqs$Transcript) |
-                                     grepl(exons$End[i], seqs$Transcript)))
-  }
-  colnames(seqs) <- c(tmp, exons$ID)
+  # for (i in seq_len(nrow(exons))) {
+  seqs[["Sequence"]] <- exons[["Sequence"]]
+  
+  seqs <-
+    bind_cols(exons) %>%
+    mutate(
+      .data = seqs,
+      Start = str_locate(Transcript, Sequence) %>% extract(1,1),
+      End   = str_locate(Transcript, Sequence) %>% extract(1,2)
+      ) %>%
+    select(-Sequence) %>%
+    rename(ID = 2)
+    
+    
   exon.calls <- seqs[, exons$ID]
   #row.names(exon.calls) <- seqs$PBID # maybe useful later
   if (!is.null(exons_to_include)) {

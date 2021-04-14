@@ -1,28 +1,64 @@
 # internal
+#' @title add_abundance_data
+#'
+#' @param transcriptDB 
+#' @param abundance_filename 
+#'
+#' @return
+#' @export
+#' 
+#' @importFrom readr read_lines read_tsv
+#' @importFrom stringr str_detect
+#' @importFrom dplyr mutate select left_join if_else
+#' @importFrom magrittr set_colnames
+#'
+#' @examples
 add_abundance_data <- function(transcriptDB, abundance_filename) {
-  print("Loading abundances...")
+  message("Loading abundances...")
   # check if file contains header
-  head <- system(command = paste("head -n20 ", abundance_filename, step = ""),
-                 intern = T)
-  has_header <- any(grepl("pbid[[:space:]]count_fl", head))
+  head <- read_lines(abundance_filename, n_max = 20)
+  has_header <- any(str_detect(head, "pbid[[:space:]]count_fl"))
 
-  abundances <- utils::read.table(abundance_filename, stringsAsFactors = F,
-                                  header = has_header)
-  abundances <- abundances[,c(1,2)]
-  names(abundances) <- c("PBID", "FL_reads")
+  if (has_header){
+    abundances <-
+      read_tsv(
+        file = abundance_filename,
+        skip =
+          which(
+            str_detect(
+              string = head,
+              pattern =  "pbid[[:space:]]count_fl")
+            ) - 1
+        )
+  } else {
+    abundances <- read_tsv(abundance_filename)
+  }
+  
+  abundances <- 
+    abundances %>%
+    select(c(1,2)) %>%
+    set_colnames(c("PBID", "FL_reads"))
+  
   # abundances$RawAbundance <- abundances$FL_reads
-  transcriptDB <- transcriptDB %>% dplyr::left_join(abundances, by = c("PBID"))
-
   # Isoseq is set to minimum 2 FL reads, so add missing 1-read counts
   # should do this better in the future
-  transcriptDB$FL_reads[is.na(transcriptDB$FL_reads)] <- 1
-  return(transcriptDB)
+  transcriptDB <-
+    left_join(
+      x = transcriptDB,
+      y = abundances,
+      by = c("PBID")
+      ) %>%
+    mutate(
+      FL_reads = if_else(condition = is.na(FL_reads), true = -1, false = FL_reads)
+    )
+
+  transcriptDB
 }
 
 # internal
 get_gff_data <- function(gff_filepath) {
   # GFF2-compatible only
-  print("Loading GFF data...")
+  message("Loading GFF data...")
   gff_data <- utils::read.table(gff_filepath, header = F, stringsAsFactors = F)
   # keep only the informative columns
   gff_data <- gff_data[,c(1,3:5,7,13)]
@@ -225,77 +261,149 @@ add_diversity_indeces <- function(geneDB, indeces = c("Gini", "Shannon"),
   return(geneDB)
 }
 
-# internal
+
+#' @title is_tsv_format
+#'
+#' @param filename 
+#' @param PBIDs 
+#'
+#' @return
+#' @export
+#' 
+#' @importFrom readr read_lines
+#' @importFrom stringr str_detect str_split
+#' @importFrom purrr map
+#'
+#' @examples
 is_tsv_format <- function(filename, PBIDs = T) {
   if (PBIDs) {
-    head <- system(command = paste("head -n1 ", filename, step = ""),
-                    intern = T)
-    return(grepl("PB\\.[0-9]+\\.[0-9]+[[:space:]][acgtnACGTN]+$", head))
+    read_lines(
+      file = filename, 
+      n_max = 1
+      ) %>%
+    str_detect(
+      pattern = "PB\\.[0-9]+\\.[0-9]+[[:space:]][acgtnACGTN]+$"
+      )
   } else {
-    return(length(system(command = paste("awk -F '\t' 'NF < 2' ", filename,
-                                         step = ""), intern = T)) == 0)
+    read_lines(
+      file = filename,
+    ) %>%
+    str_split(pattern = "\t") %>%
+    map(length) %>%
+    unlist() %>%
+    any(. == 1)
   }
 }
 
 # internal
 get_orf_sequences <- function(orf_filename) {
   if (!is_tsv_format(orf_filename)) {
-    tmpfile <- get_tmp_tsv_file(orf_filename)
-    orfDB <- read_tsv_file(tmpfile, get_prefix = T)
+    orfDB <- read_fasta_file(tmpfile, get_prefix = T)
   } else {
     orfDB <- read_tsv_file(orf_filename, get_prefix = T)
   }
   colnames(orfDB) <- c("PBID", "Transcript", "TranscriptLength", "Prefix")
-  return(orfDB)
+  orfDB
 }
 
 # internal
+#' @title add_ORF_sequences
+#'
+#' @param transcriptDB 
+#' @param ORF_filename 
+#'
+#' @return
+#' @export
+#' 
+#' @importFrom dplyr left_join
+#'
+#' @examples
 add_ORF_sequences <- function(transcriptDB, ORF_filename) {
   # the ORF file comes from SQANTI's ORF predictions
-  print("Loading ORFs...")
+  message("Loading ORFs...")
   if (!is_tsv_format(ORF_filename)) {
-    tmpfile <- get_tmp_tsv_file(ORF_filename, ORFs = T)
-    ORFs <- read_tsv_file(tmpfile, get_prefix = F)
+    ORFs <- read_fasta_file(ORF_filename, get_prefix = F)
   } else {
     ORFs <- read_tsv_file(ORF_filename, get_prefix = F)
   }
   colnames(ORFs) <- c("PBID", "ORF", "ORFLength")
 
-  transcriptDB <- transcriptDB %>% dplyr::left_join(ORFs, by = "PBID")
-  return(transcriptDB)
+
+  left_join(
+    x = transcriptDB,
+    y = ORFs,
+    by = "PBID"
+    )
 }
 
 # internal
+
+#' @title get_transcript_sequences
+#'
+#' @param transcript_filename 
+#'
+#' @return
+#' @export
+#' 
+#' @importFrom stringr str_detect str_extract
+#' @importFrom magrittr set_colnames
+#'
+#' @examples
 get_transcript_sequences <- function(transcript_filename) {
-  print("Loading sequences...")
-  if (!is_tsv_format(transcript_filename)) {
-    tmpfile <- get_tmp_tsv_file(transcript_filename)
-    transcriptDB <- read_tsv_file(tmpfile, get_prefix = T)
+  message("Loading sequences...")
+  if (!str_detect(string = transcript_filename, pattern = "tsv$")) {
+    transcriptDB <- read_fasta_file(
+      filename = transcript_filename,
+      get_prefix = TRUE
+    ) 
   } else {
-    transcriptDB <- read_tsv_file(transcript_filename, get_prefix = T)
+    transcriptDB <-
+      read_tsv_file(
+        tsv_filename = transcript_filename,
+        get_prefix = T
+      )
   }
-  colnames(transcriptDB) <- c("PBID", "Transcript", "TranscriptLength", "Prefix")
-  return(transcriptDB)
+  
+  set_colnames(
+    x = transcriptDB,
+    value = c("PBID", "Transcript", "TranscriptLength", "Prefix"))
 }
 
+#' @title read_tsv_file
+#'
+#' @param tsv_filename 
+#' @param get_prefix 
+#'
+#' @return
+#' @export
+#' 
+#' @importFrom readr read_tsv
+#' @importFrom dplyr mutate
+#' @importFrom stringr str_extract
+#'
+#' @examples
 read_tsv_file <- function(tsv_filename, get_prefix = T) {
-  seqDB <- utils::read.table(tsv_filename, stringsAsFactors = F)
-  names(seqDB) <- c("PBID", "Sequence")
-  seqDB$Sequence <- sapply(seqDB$Sequence, function(x) {
-    toupper(x)
-  })
-  seqDB$SeqLength <- sapply(seqDB$Sequence, function(x) {
-    nchar(x)
-  })
+  seqDB <-
+    read_tsv(
+      file = tsv_filename,
+      skip = 1,
+      col_names = c("PBID", "sequence")
+      ) %>%
+    mutate(
+      sequence = toupper(sequence),
+      seq_len = nchar(sequence)
+    )
   if (get_prefix) {
-    seqDB$Prefix <- sapply(seqDB$PBID, function(x) {
-      stringr::str_match(x, "PB\\.[0-9]*")
-    })
+    seqDB <-
+      mutate(
+        .data = seqDB,
+        Prefix = str_extract(x, "PB\\.[0-9]*")
+      )
   }
-  return(seqDB)
+  seqDB
 }
 
-#' @title get_tmp_tsv_file
+#' @title read_fasta_file
 #'
 #' @description convert fasta/fastq to tsv format for R-compatible reading in
 #' example tsv file line:
@@ -303,7 +411,6 @@ read_tsv_file <- function(tsv_filename, get_prefix = T) {
 #'
 #' @param filename
 #' @param ORFs
-#' @param exons
 #'
 #' @importFrom seqinr read.fasta
 #' @importFrom purrr map 
@@ -312,42 +419,29 @@ read_tsv_file <- function(tsv_filename, get_prefix = T) {
 #' @importFrom readr write_tsv
 #' @importFrom magrittr %>%
 #'
-get_tmp_tsv_file <- function(filename, ORFs = F, exons = F) {
-  old_name <- strsplit(basename(filename), split = ".",
-                       fixed = T)[[1]]
-  old_name <- paste(old_name[1:length(old_name) - 1], collapse = ".")
-  d_name <- dirname(filename)
-
-  if (ORFs) ext <- "ORFs"
-  else {
-    if (exons) ext <- "exons"
-    else ext <- "transcripts"
-  }
-  tmpfile <- paste(d_name, "/", old_name, ".", ext, ".tsv", sep = "")
-
-  if (!file.exists(tmpfile)) {
+read_fasta_file <- function(filename, get_prefix = F) {
+  fasta_file <-
     read.fasta(
-      transcript_filename,
+      filename,
       as.string = TRUE
       ) %>%
     map(
-      .x = fasta,
       .f = as.character
     ) %>%
     enframe() %>%
     unnest(col = c(value)) %>%
-    write_tsv(file = paste0(transcript_filename, ".tsv"))
-    # if (!exons) {
-    #   system(command = paste("cat ", filename,
-    #           " | sed -E 's/^.*(PB\\.[0-9]+\\.[0-9]+).*$/DELIM1\\1DELIM2/'",
-    #           " | tr -d '\n'  | sed 's/DELIM1/\\'$'\n/g'",
-    #           " | sed 's/DELIM2/\'$'\t/g' | tail -n +2 > ", tmpfile, sep = ""))
-    # } else {
-    #   system(command = paste("cat ", filename,
-    #           " | sed -E 's/^>(.*)$/DELIM1\\1DELIM2/'",
-    #           " | tr -d '\n'  | sed 's/DELIM1/\\'$'\n/g'",
-    #           " | sed 's/DELIM2/\'$'\t/g' | tail -n +2 > ", tmpfile, sep = ""))
-    # }
+    mutate(
+      value = toupper(value),
+      seq_len = nchar(value)
+      )
+  
+  if (get_prefix){
+    fasta_file <-
+      mutate(
+        .data = fasta_file,
+        Prefix = str_extract(string = name, pattern = "^PB\\.[[:digit:]]")
+      )
   }
-  return(tmpfile)
+  
+  fasta_file
 }

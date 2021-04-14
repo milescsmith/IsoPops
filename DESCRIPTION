@@ -1,7 +1,7 @@
 Package: IsoPops
 Type: Package
 Title: Framework for Analyzing Diverse Isoform Populations
-Version: 0.3.1
+Version: 0.3.2s
 Author: Kelly Cochran <kelly.cochran36@gmail.com>
 Maintainer: Kelly Cochran <kelly.cochran36@gmail.com>
 Description: Functions for assembling datasets generated from PacBio's IsoSeq

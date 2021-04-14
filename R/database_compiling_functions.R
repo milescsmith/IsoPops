@@ -89,8 +89,8 @@ compile_raw_db <- function(transcript_filename, abundance_filename,
   transcriptDB <- add_gff_info(transcriptDB, gffDB)
   transcriptDB <- unique(transcriptDB)
 
-  print("Done.")
-  return(RawDatabase(transcriptDB, gffDB))
+  message("Done.")
+  RawDatabase(transcriptDB, gffDB)
 }
 
 
